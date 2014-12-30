@@ -563,9 +563,27 @@ All default ores are of the uniformly-distributed scatter type.
     clust_scarcity and clust_num_ores are ignored.
     This is essentially an improved version of the so-called "stratus" ore seen in some unofficial mods.
  - blob
-    Creates a roundish blob of ore according to 3d perlin noise described by noise_params. The maximum
-    size of the blob is clust_size, and clust_scarcity has the same meaning as with scatter type.
-
+    Creates a deformed sphere blobs of ore according to 3d perlin noise described by noise_params. The
+    maximum size of the blob is clust_size, and clust_scarcity has the same meaning as with scatter type.
+ - vein
+    Creates veins of ore varying in density by according to the intersection of two instances 3d perlin
+    noise with diffferent seeds both described by noise_params.  random_factor varies the influence random
+    chance has on placement of an ore inside the vein, which is 1 by default.  Note that modifying this
+    parameter may require adjusting noise_threshhold.  The parameters clust_scarcity, clust_num_ores, and
+    clust_size are ignored by this ore type.  This ore type is difficult to control since it is sensitive
+    to small changes.  The following is a decent set of parameters to work from:
+    noise_params = {
+        offset  = 0,
+        scale   = 3,
+        spread  = {x=200, y=200, z=200},
+        seed    = 5390,
+        octaves = 4,
+        persist = 0.5,
+        flags = "eased",
+    },
+    noise_threshhold = 1.6
+    WARNING:  Use this ore type *very* sparingly since it is ~200x more computationally expensive than
+    any other ore.
 
 Ore attributes
 -------------------
@@ -1360,9 +1378,11 @@ math.hypot(x, y)
 math.sign(x, tolerance)
 ^ Get the sign of a number
   Optional: Also returns 0 when the absolute value is within the tolerance (default 0)
-string:split(separator)
-^ e.g. string:split("a,b", ",") == {"a","b"}
-string:trim()
+string.split(str, separator=",", include_empty=false, max_splits=-1, sep_is_pattern=false)
+^ If max_splits is negative, do not limit splits.
+^ sep_is_pattern specifies if separator is a plain string or a pattern (regex).
+^ e.g. string.split("a,b", ",") == {"a","b"}
+string.trim(str)
 ^ e.g. string.trim("\n \t\tfoo bar\t ") == "foo bar"
 minetest.pos_to_string({x=X,y=Y,z=Z}) -> "(X,Y,Z)"
 ^ Convert position to a printable string
@@ -1486,8 +1506,9 @@ minetest.register_on_player_receive_fields(func(player, formname, fields))
 ^ Newest functions are called first
 ^ If function returns true, remaining functions are not called
 minetest.register_on_mapgen_init(func(MapgenParams))
-^ Called just before the map generator is initialized but before the environment is initialized
-^ MapgenParams consists of a table with the fields mgname, seed, water_level, and flags
+^ Deprecated; maintained for compatibility
+^ This immediately calls func(minetest.get_mapgen_params())
+^ MapgenParams consists of a table with the fields mgname, chunksize, seed, water_level, and flags
 minetest.register_on_craft(func(itemstack, player, old_craft_grid, craft_inv))
 ^ Called when player crafts something
 ^ itemstack is the output
@@ -1595,7 +1616,7 @@ minetest.get_perlin(seeddiff, octaves, persistence, scale)
 minetest.get_voxel_manip()
 ^ Return voxel manipulator object
 minetest.get_voxel_manip(p1, p2)
-^ Return voxel manipulator object with blank data preallocated
+^ Return voxel manipulator object with map pre-loaded
 minetest.set_gen_notify(flags, {deco_ids})
 ^ Set the types of on-generate notifications that should be collected
 ^ flags is a flag field with the available flags:
@@ -1603,6 +1624,10 @@ minetest.set_gen_notify(flags, {deco_ids})
 ^ The second parameter is a list of IDS of decorations which notification is requested for
 minetest.get_mapgen_object(objectname)
 ^ Return requested mapgen object if available (see Mapgen objects)
+minetest.get_mapgen_params()
+^ Returns mapgen params
+^ A table consisting of mgname, seed, chunksize, water_level, and flags
+^ Can be called at any time
 minetest.set_mapgen_params(MapgenParams)
 ^ Set map generation parameters
 ^ Function cannot be called after the registration period; only initialization and on_mapgen_init
@@ -2134,13 +2159,16 @@ ItemStack: A stack of items.
 methods:
 - is_empty(): return true if stack is empty
 - get_name(): returns item name (e.g. "default:stone")
-- set_name(itemname)
+- set_name(itemname): returns true/false (success)
+  ^ clears item on failure
 - get_count(): returns number of items on the stack
-- set_count(count)
+- set_count(count): returns true/false (success)
+  ^ clears item on failure
 - get_wear(): returns tool wear (0-65535), 0 for non-tools
-- set_wear(wear)
+- set_wear(wear): returns true/false (success)
+  ^ clears item on failure
 - get_metadata(): returns metadata (a string attached to an item stack)
-- set_metadata(metadata)
+- set_metadata(metadata): returns true
 - clear(): removes all items from the stack, making it empty
 - replace(item): replace the contents of this stack (item can also
     be an itemstring or table)
@@ -2194,7 +2222,7 @@ methods:
 VoxelManip: An interface to the MapVoxelManipulator for Lua
 - Can be created via VoxelManip()
 - Also minetest.get_voxel_manip()
-- Specify a pmin, pmax in either to allocate a blank chunk of data prefilled with cignore
+- Specify a pmin, pmax to create a VoxelManip with map already loaded
 methods:
 - read_from_map(p1, p2):  Reads a chunk of map from the map containing the region formed by p1 and p2.
   ^ returns actual emerged pmin, actual emerged pmax
@@ -2717,6 +2745,10 @@ Ore definition (register_ore)
     noise_params = {offset=0, scale=1, spread={x=100, y=100, z=100}, seed=23, octaves=3, persist=0.70}
     ^ NoiseParams structure describing the perlin noise used for ore distribution.
     ^ Needed for sheet ore_type.  Omit from scatter ore_type for a uniform ore distribution
+    random_factor = 1.0,
+    ^ Multiplier of the randomness contribution to the noise value at any given point to
+    ^ decide if ore should be placed.  Set to 0 for solid veins. This parameter is only valid
+    ^ for ore_type == "vein".
 }
 
 Decoration definition (register_decoration)
@@ -2736,6 +2768,10 @@ Decoration definition (register_decoration)
     biomes = {"Oceanside", "Hills", "Plains"},
     ^ List of biomes in which this decoration occurs.  Occurs in all biomes if this is omitted,
     ^ and ignored if the Mapgen being used does not support biomes.
+    height_min = -31000
+    height_max = 31000
+    ^ Minimum and maximum y positions these decorations can be generated at.  This parameter refers to the
+    ^ y position of the decoration base, so the actual maximum height would be (height_max + size.Y).
 
     ----- Simple-type parameters
     decoration = "default:grass",

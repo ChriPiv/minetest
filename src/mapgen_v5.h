@@ -56,7 +56,6 @@ public:
 	int zstride;
 	u32 spflags;
 
-	u32 blockseed;
 	v3s16 node_min;
 	v3s16 node_max;
 	v3s16 full_node_min;
@@ -103,11 +102,13 @@ public:
 
 
 struct MapgenFactoryV5 : public MapgenFactory {
-	Mapgen *createMapgen(int mgid, MapgenParams *params, EmergeManager *emerge) {
+	Mapgen *createMapgen(int mgid, MapgenParams *params, EmergeManager *emerge)
+	{
 		return new MapgenV5(mgid, params, emerge);
 	};
 
-	MapgenSpecificParams *createMapgenParams() {
+	MapgenSpecificParams *createMapgenParams()
+	{
 		return new MapgenV5Params();
 	};
 };

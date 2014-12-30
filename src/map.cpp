@@ -1766,7 +1766,11 @@ void Map::transformLiquids(std::map<v3s16, MapBlock*> & modified_blocks)
 		content_t new_node_content;
 		s8 new_node_level = -1;
 		s8 max_node_level = -1;
-		u8 range = rangelim(nodemgr->get(liquid_kind).liquid_range, 0, LIQUID_LEVEL_MAX+1);
+
+		u8 range = nodemgr->get(liquid_kind).liquid_range;
+		if (range > LIQUID_LEVEL_MAX+1)
+			range = LIQUID_LEVEL_MAX+1;
+
 		if ((num_sources >= 2 && nodemgr->get(liquid_kind).liquid_renewable) || liquid_type == LIQUID_SOURCE) {
 			// liquid_kind will be set to either the flowing alternative of the node (if it's a liquid)
 			// or the flowing alternative of the first of the surrounding sources (if it's air), so
@@ -3595,29 +3599,6 @@ ManualMapVoxelManipulator::ManualMapVoxelManipulator(Map *map):
 
 ManualMapVoxelManipulator::~ManualMapVoxelManipulator()
 {
-}
-
-void ManualMapVoxelManipulator::initializeBlank(v3s16 blockpos_min,
-	v3s16 blockpos_max)
-{
-	// Units of these are MapBlocks
-	v3s16 pmin = blockpos_min;
-	v3s16 pmax = blockpos_max;
-
-	VoxelArea block_area_nodes(pmin * MAP_BLOCKSIZE,
-		(pmax + 1) * MAP_BLOCKSIZE - v3s16(1,1,1));
-
-	addArea(block_area_nodes);
-	u32 extent = m_area.getVolume();
-	for (u32 i = 0; i != extent; i++)
-		m_data[i] = MapNode(CONTENT_IGNORE);
-
-	for (s32 z = pmin.Z; z <= pmax.Z; z++)
-	for (s32 y = pmin.Y; y <= pmax.Y; y++)
-	for (s32 x = pmin.X; x <= pmax.X; x++)
-		m_loaded_blocks[v3s16(x, y, z)] = 0;
-
-	m_is_dirty = false;
 }
 
 void ManualMapVoxelManipulator::initialEmerge(v3s16 blockpos_min,

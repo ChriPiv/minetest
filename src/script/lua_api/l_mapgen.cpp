@@ -68,9 +68,10 @@ struct EnumString ModApiMapgen::es_MapgenObject[] =
 
 struct EnumString ModApiMapgen::es_OreType[] =
 {
-	{ORE_TYPE_SCATTER,  "scatter"},
-	{ORE_TYPE_SHEET,    "sheet"},
-	{ORE_TYPE_BLOB,     "blob"},
+	{ORE_TYPE_SCATTER, "scatter"},
+	{ORE_TYPE_SHEET,   "sheet"},
+	{ORE_TYPE_BLOB,    "blob"},
+	{ORE_TYPE_VEIN,    "vein"},
 	{0, NULL},
 };
 
@@ -324,6 +325,31 @@ int ModApiMapgen::l_get_mapgen_object(lua_State *L)
 	return 0;
 }
 
+int ModApiMapgen::l_get_mapgen_params(lua_State *L)
+{
+	MapgenParams *params = &getServer(L)->getEmergeManager()->params;
+
+	lua_newtable(L);
+
+	lua_pushstring(L, params->mg_name.c_str());
+	lua_setfield(L, -2, "mgname");
+
+	lua_pushinteger(L, params->seed);
+	lua_setfield(L, -2, "seed");
+
+	lua_pushinteger(L, params->water_level);
+	lua_setfield(L, -2, "water_level");
+
+	lua_pushinteger(L, params->chunksize);
+	lua_setfield(L, -2, "chunksize");
+
+	std::string flagstr = writeFlagString(params->flags, flagdesc_mapgen, (u32)-1);
+	lua_pushstring(L, flagstr.c_str());
+	lua_setfield(L, -2, "flags");
+
+	return 1;
+}
+
 // set_mapgen_params(params)
 // set mapgen parameters
 int ModApiMapgen::l_set_mapgen_params(lua_State *L)
@@ -331,38 +357,34 @@ int ModApiMapgen::l_set_mapgen_params(lua_State *L)
 	if (!lua_istable(L, 1))
 		return 0;
 
-	EmergeManager *emerge = getServer(L)->getEmergeManager();
-	assert(emerge);
-
-	std::string flagstr;
+	MapgenParams *params = &getServer(L)->getEmergeManager()->params;
 	u32 flags = 0, flagmask = 0;
 
 	lua_getfield(L, 1, "mgname");
 	if (lua_isstring(L, -1)) {
-		emerge->params.mg_name = std::string(lua_tostring(L, -1));
-		delete emerge->params.sparams;
-		emerge->params.sparams = NULL;
+		params->mg_name = lua_tostring(L, -1);
+		delete params->sparams;
+		params->sparams = NULL;
 	}
 
 	lua_getfield(L, 1, "seed");
 	if (lua_isnumber(L, -1))
-		emerge->params.seed = lua_tointeger(L, -1);
+		params->seed = lua_tointeger(L, -1);
 
 	lua_getfield(L, 1, "water_level");
 	if (lua_isnumber(L, -1))
-		emerge->params.water_level = lua_tointeger(L, -1);
+		params->water_level = lua_tointeger(L, -1);
 
 	lua_getfield(L, 1, "flagmask");
 	if (lua_isstring(L, -1)) {
-		flagstr = lua_tostring(L, -1);
-		emerge->params.flags &= ~readFlagString(flagstr, flagdesc_mapgen, NULL);
+		params->flags &= ~readFlagString(lua_tostring(L, -1), flagdesc_mapgen, NULL);
 		errorstream << "set_mapgen_params(): flagmask field is deprecated, "
 			"see lua_api.txt" << std::endl;
 	}
 
 	if (getflagsfield(L, 1, "flags", flagdesc_mapgen, &flags, &flagmask)) {
-		emerge->params.flags &= ~flagmask;
-		emerge->params.flags |= flags;
+		params->flags &= ~flagmask;
+		params->flags |= flags;
 	}
 
 	return 0;
@@ -421,14 +443,16 @@ int ModApiMapgen::l_register_biome(lua_State *L)
 		es_BiomeTerrainType, BIOME_TYPE_NORMAL);
 	Biome *b = bmgr->create(biometype);
 
-	b->name           = getstringfield_default(L, index, "name", "");
-	b->depth_top      = getintfield_default(L, index, "depth_top",    1);
-	b->depth_filler   = getintfield_default(L, index, "depth_filler", 3);
-	b->height_min     = getintfield_default(L, index, "height_min",   0);
-	b->height_max     = getintfield_default(L, index, "height_max",   0);
-	b->heat_point     = getfloatfield_default(L, index, "heat_point",     0.);
-	b->humidity_point = getfloatfield_default(L, index, "humidity_point", 0.);
-	b->flags          = 0; //reserved
+	b->name            = getstringfield_default(L, index, "name", "");
+	b->depth_top       = getintfield_default(L, index, "depth_top",          1);
+	b->depth_filler    = getintfield_default(L, index, "depth_filler",       3);
+	b->height_shore    = getintfield_default(L, index, "height_shore",       3);
+	b->depth_water_top = getintfield_default(L, index, "depth_water_top",    0);
+	b->y_min           = getintfield_default(L, index, "y_min",         -31000);
+	b->y_max           = getintfield_default(L, index, "y_max",          31000);
+	b->heat_point      = getfloatfield_default(L, index, "heat_point",     0.f);
+	b->humidity_point  = getfloatfield_default(L, index, "humidity_point", 0.f);
+	b->flags           = 0; //reserved
 
 	u32 id = bmgr->add(b);
 	if (id == (u32)-1) {
@@ -438,12 +462,15 @@ int ModApiMapgen::l_register_biome(lua_State *L)
 
 	NodeResolveInfo *nri = new NodeResolveInfo(b);
 	std::list<std::string> &nnames = nri->nodenames;
-	nnames.push_back(getstringfield_default(L, index, "node_top",        ""));
-	nnames.push_back(getstringfield_default(L, index, "node_filler",     ""));
-	nnames.push_back(getstringfield_default(L, index, "node_stone",      ""));
-	nnames.push_back(getstringfield_default(L, index, "node_water",      ""));
-	nnames.push_back(getstringfield_default(L, index, "node_dust",       ""));
-	nnames.push_back(getstringfield_default(L, index, "node_dust_water", ""));
+	nnames.push_back(getstringfield_default(L, index, "node_top",          ""));
+	nnames.push_back(getstringfield_default(L, index, "node_filler",       ""));
+	nnames.push_back(getstringfield_default(L, index, "node_shore_top",    ""));
+	nnames.push_back(getstringfield_default(L, index, "node_shore_filler", ""));
+	nnames.push_back(getstringfield_default(L, index, "node_underwater",   ""));
+	nnames.push_back(getstringfield_default(L, index, "node_stone",        ""));
+	nnames.push_back(getstringfield_default(L, index, "node_water_top",    ""));
+	nnames.push_back(getstringfield_default(L, index, "node_water",        ""));
+	nnames.push_back(getstringfield_default(L, index, "node_dust",         ""));
 	ndef->pendNodeResolve(nri);
 
 	verbosestream << "register_biome: " << b->name << std::endl;
@@ -495,6 +522,8 @@ int ModApiMapgen::l_register_decoration(lua_State *L)
 
 	deco->name       = getstringfield_default(L, index, "name", "");
 	deco->fill_ratio = getfloatfield_default(L, index, "fill_ratio", 0.02);
+	deco->y_min      = getintfield_default(L, index, "y_min", -31000);
+	deco->y_max      = getintfield_default(L, index, "y_max", 31000);
 	deco->sidelen    = getintfield_default(L, index, "sidelen", 8);
 	if (deco->sidelen <= 0) {
 		errorstream << "register_decoration: sidelen must be "
@@ -654,11 +683,21 @@ int ModApiMapgen::l_register_ore(lua_State *L)
 	ore->clust_scarcity = getintfield_default(L, index, "clust_scarcity", 1);
 	ore->clust_num_ores = getintfield_default(L, index, "clust_num_ores", 1);
 	ore->clust_size     = getintfield_default(L, index, "clust_size", 0);
-	ore->height_min     = getintfield_default(L, index, "height_min", 0);
-	ore->height_max     = getintfield_default(L, index, "height_max", 0);
 	ore->nthresh        = getfloatfield_default(L, index, "noise_threshhold", 0);
 	ore->noise          = NULL;
 	ore->flags          = 0;
+
+	// height_min and height_max are aliases for y_min and y_max, respectively,
+	// for backwards compatibility
+	int ymin, ymax;
+	if (!getintfield(L, index, "y_min", ymin) &&
+		!getintfield(L, index, "height_min", ymin))
+		ymin = -31000;
+	if (!getintfield(L, index, "y_max", ymax) &&
+		!getintfield(L, index, "height_max", ymax))
+		ymax = 31000;
+	ore->y_min = ymin;
+	ore->y_max = ymax;
 
 	if (ore->clust_scarcity <= 0 || ore->clust_num_ores <= 0) {
 		errorstream << "register_ore: clust_scarcity and clust_num_ores"
@@ -679,6 +718,12 @@ int ModApiMapgen::l_register_ore(lua_State *L)
 		return 0;
 	}
 	lua_pop(L, 1);
+
+	if (oretype == ORE_TYPE_VEIN) {
+		OreVein *orevein = (OreVein *)ore;
+		orevein->random_factor = getfloatfield_default(L, index,
+			"random_factor", 1.f);
+	}
 
 	u32 id = oremgr->add(ore);
 	if (id == (u32)-1) {
@@ -804,6 +849,7 @@ void ModApiMapgen::Initialize(lua_State *L, int top)
 {
 	API_FCT(get_mapgen_object);
 
+	API_FCT(get_mapgen_params);
 	API_FCT(set_mapgen_params);
 	API_FCT(set_noiseparams);
 	API_FCT(set_gen_notify);

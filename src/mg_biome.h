@@ -39,16 +39,21 @@ public:
 
 	content_t c_top;
 	content_t c_filler;
+	content_t c_shore_top;
+	content_t c_shore_filler;
+	content_t c_underwater;
 	content_t c_stone;
+	content_t c_water_top;
 	content_t c_water;
 	content_t c_dust;
-	content_t c_dust_water;
 
 	s16 depth_top;
 	s16 depth_filler;
+	s16 height_shore;
+	s16 depth_water_top;
 
-	s16 height_min;
-	s16 height_max;
+	s16 y_min;
+	s16 y_max;
 	float heat_point;
 	float humidity_point;
 

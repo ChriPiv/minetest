@@ -27,10 +27,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 const char *OreManager::ELEMENT_TITLE = "ore";
 
 FlagDesc flagdesc_ore[] = {
-	{"absheight",            OREFLAG_ABSHEIGHT},
-	{"scatter_noisedensity", OREFLAG_DENSITY},
-	{"claylike_nodeisnt",    OREFLAG_NODEISNT},
-	{NULL,                   0}
+	{"absheight", OREFLAG_ABSHEIGHT},
+	{NULL,        0}
 };
 
 
@@ -97,25 +95,25 @@ size_t Ore::placeOre(Mapgen *mg, u32 blockseed, v3s16 nmin, v3s16 nmax)
 {
 	int in_range = 0;
 
-	in_range |= (nmin.Y <= height_max && nmax.Y >= height_min);
+	in_range |= (nmin.Y <= y_max && nmax.Y >= y_min);
 	if (flags & OREFLAG_ABSHEIGHT)
-		in_range |= (nmin.Y >= -height_max && nmax.Y <= -height_min) << 1;
+		in_range |= (nmin.Y >= -y_max && nmax.Y <= -y_min) << 1;
 	if (!in_range)
 		return 0;
 
-	int ymin, ymax;
+	int actual_ymin, actual_ymax;
 	if (in_range & ORE_RANGE_MIRROR) {
-		ymin = MYMAX(nmin.Y, -height_max);
-		ymax = MYMIN(nmax.Y, -height_min);
+		actual_ymin = MYMAX(nmin.Y, -y_max);
+		actual_ymax = MYMIN(nmax.Y, -y_min);
 	} else {
-		ymin = MYMAX(nmin.Y, height_min);
-		ymax = MYMIN(nmax.Y, height_max);
+		actual_ymin = MYMAX(nmin.Y, y_min);
+		actual_ymax = MYMIN(nmax.Y, y_max);
 	}
-	if (clust_size >= ymax - ymin + 1)
+	if (clust_size >= actual_ymax - actual_ymin + 1)
 		return 0;
 
-	nmin.Y = ymin;
-	nmax.Y = ymax;
+	nmin.Y = actual_ymin;
+	nmax.Y = actual_ymax;
 	generate(mg->vm, mg->seed, blockseed, nmin, nmax);
 
 	return 1;
@@ -217,7 +215,7 @@ void OreBlob::generate(ManualMapVoxelManipulator *vm, int seed, u32 blockseed,
 	int volume = (nmax.X - nmin.X + 1) *
 				 (nmax.Y - nmin.Y + 1) *
 				 (nmax.Z - nmin.Z + 1);
-	int csize     = clust_size;
+	int csize  = clust_size;
 	int nblobs = volume / clust_scarcity;
 
 	if (!noise)
@@ -259,5 +257,57 @@ void OreBlob::generate(ManualMapVoxelManipulator *vm, int seed, u32 blockseed,
 
 			vm->m_data[i] = n_ore;
 		}
+	}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+OreVein::~OreVein()
+{
+	delete noise2;
+}
+
+
+void OreVein::generate(ManualMapVoxelManipulator *vm, int seed, u32 blockseed,
+	v3s16 nmin, v3s16 nmax)
+{
+	PseudoRandom pr(blockseed + 520);
+	MapNode n_ore(c_ore, 0, ore_param2);
+
+	if (!noise) {
+		int sx = nmax.X - nmin.X + 1;
+		int sy = nmax.Y - nmin.Y + 1;
+		int sz = nmax.Z - nmin.Z + 1;
+		noise  = new Noise(&np, seed, sx, sy, sz);
+		noise2 = new Noise(&np, seed + 436, sx, sy, sz);
+	}
+	bool noise_generated = false;
+
+	size_t index = 0;
+	for (int z = nmin.Z; z <= nmax.Z; z++)
+	for (int y = nmin.Y; y <= nmax.Y; y++)
+	for (int x = nmin.X; x <= nmax.X; x++, index++) {
+		u32 i = vm->m_area.index(x, y, z);
+		if (!vm->m_area.contains(i))
+			continue;
+		if (!CONTAINS(c_wherein, vm->m_data[i].getContent()))
+			continue;
+
+		// Same lazy generation optimization as in OreBlob
+		if (!noise_generated) {
+			noise_generated = true;
+			noise->perlinMap3D(nmin.X, nmin.Y, nmin.Z);
+			noise2->perlinMap3D(nmin.X, nmin.Y, nmin.Z);
+		}
+
+		// randval ranges from -1..1
+		float randval   = (float)pr.next() / (PSEUDORANDOM_MAX / 2) - 1.f;
+		float noiseval  = contour(noise->result[index]);
+		float noiseval2 = contour(noise2->result[index]);
+		if (noiseval * noiseval2 + randval * random_factor < nthresh)
+			continue;
+
+		vm->m_data[i] = n_ore;
 	}
 }
